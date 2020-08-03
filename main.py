@@ -10,7 +10,7 @@ wlan = network.WLAN(network.STA_IF)
 def mqtt(temperatura,humedad,setpoint,ventilador,mac,server="url"):
     c = MQTTClient(mac, server)
     c.connect()
-    envio=ujson.dumps({'temperatura':temperatura,'humedad':humedad,'setpoint':setpoint,'ventilador':ventilador})
+    envio=ujson.dumps({'temperatura':temperatura,'humedad':humedad,'setpoint':setpoint,'rele':ventilador})
     topico=b"sensores_remotos/"+mac
     c.publish(topico, envio)
     print("publicado")
@@ -41,6 +41,7 @@ button_a = Button(pin=Pin(2, mode=Pin.IN, pull=Pin.PULL_UP), callback=button_a_c
 
 d = dht.DHT22(Pin(13))
 ventilador=0
+histeresis=2
 rele= Pin(16, Pin.OUT,value=1)
 
 f=open("setpoint.dat","r")
@@ -58,9 +59,9 @@ r = RotaryIRQ(pin_num_clk=12,
 r.set(value=setpoint)
 
 disp_SP=setpoint
-y_SP=30
-y_vent=40
-y_wifi=53
+y_SP=28
+y_vent=39
+y_wifi=51
 oled.text("Set Point:",0,y_SP)
 oled.text(str(setpoint),112,y_SP)
 oled.text("Ventilador:   NO",0,y_vent)
@@ -82,6 +83,7 @@ j=0
 start2 = ticks_ms()
 temperatura=0
 humedad=0
+enviando=0
 while True:
     new_SP = r.value()
 
@@ -110,20 +112,31 @@ while True:
     i=i+1
     if j==2:
         j=0
-        if ventilador==1 and temperatura < setpoint-2:
+        if ventilador==1 and temperatura < setpoint-histeresis:
             ventilador=0
             oled.fill_rect(0,y_vent,128,8,0)
             oled.text("Ventilador:   NO",0,y_vent)
             rele.on()
-        elif ventilador==0 and temperatura > setpoint+2:
+        elif ventilador==0 and temperatura > setpoint+histeresis:
             oled.fill_rect(0,y_vent,128,8,0)
             ventilador=1
             oled.text("Ventilador:   SI",0,y_vent)
             rele.off()
         print(ventilador)
-    oled.show()
-    if ticks_diff(ticks_ms(), start2)>20000:
+    if ticks_diff(ticks_ms(), start2)>180000:
         start2 = ticks_ms()
         if wlan.isconnected():
             mqtt(temperatura,humedad,setpoint,ventilador,mac)
+            enviando=8
+            inicio=ticks_ms()+500
+    if enviando>0:
+        if (enviando % 2)==0 and ticks_diff(ticks_ms(), inicio)>249:
+            oled.hline(0,63,128,1)
+            inicio=ticks_ms()
+            enviando-=1
+        elif (enviando % 2)!=0 and ticks_diff(ticks_ms(), inicio)>249:
+            oled.hline(0,63,128,0)
+            inicio=ticks_ms()
+            enviando-=1
+    oled.show()
     sleep_ms(50)
