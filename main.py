@@ -1,21 +1,25 @@
 from machine import Pin, I2C
-import ssd1306, dht, ujson, os, network
+import ssd1306, dht, ujson, os, network,errno
 from time import sleep_ms,ticks_ms, ticks_diff,sleep
 from rotary_irq_esp import RotaryIRQ
 from umqtt.simple import MQTTClient
 from button import Button
+from boot import do_connect
 
 wlan = network.WLAN(network.STA_IF)
 
-def mqtt(temperatura,humedad,setpoint,ventilador,mac,server="url"):
-    c = MQTTClient(mac, server)
-    c.connect()
+def mqtt(temperatura,humedad,setpoint,ventilador,c):
+    # try:
+    #     c.connect()
+    # except OSError as e:
+    #     print("no hsot")
+    # else:
     envio=ujson.dumps({'temperatura':temperatura,'humedad':humedad,'setpoint':setpoint,'rele':ventilador})
     topico=b"sensores_remotos/"+mac
     c.publish(topico, envio)
     print("publicado")
     print(envio)
-    c.disconnect()
+    # c.disconnect()
 
 
 i2c = I2C(-1, scl=Pin(5), sda=Pin(4))
@@ -25,21 +29,33 @@ oled = ssd1306.SSD1306_I2C(oled_width, oled_height, i2c)
 oled.fill(0)
 oled.show()
 
-def button_a_callback(pin):
+def button_a_callback(topic, msg):
+    global r
     global disp_SP
     global setpoint
-    setpoint=disp_SP
+    global nuevo_sp
+    if setpoint!=disp_SP and msg==None:
+        setpoint=disp_SP
+        r.set(value=setpoint)
+    else:
+        print(msg)
+        print(int(msg))
+        setpoint=int(msg)
+        r.set(value=setpoint)
     print("setpoint cambiado "+str(setpoint))
     f=open("setpoint.dat","w")
     f.write(str(setpoint))
     f.close()
     print("grabado nuevo SP")
+    disp_SP=setpoint
+    nuevo_sp=1
     # r.set(disp_SP)
     # print("Button A (%s) changed to: %r" % (pin, pin.value()))
 
 button_a = Button(pin=Pin(2, mode=Pin.IN, pull=Pin.PULL_UP), callback=button_a_callback)
 
 d = dht.DHT22(Pin(13))
+nuevo_sp=0
 ventilador=0
 histeresis=2
 rele= Pin(16, Pin.OUT,value=1)
@@ -77,6 +93,15 @@ else:
     oled.fill_rect(0,y_wifi-2,128,12,1)
     oled.text("WiFi:         NO",0,y_wifi,0)
 
+server="url"
+c = MQTTClient(mac, server)
+c.set_callback(button_a_callback)
+try:
+    c.connect()
+except OSError as e:
+    print("no hsot")
+
+c.subscribe(b"sensores_remotos/"+mac+b"/setpoint")
 
 i=0
 j=0
@@ -98,6 +123,8 @@ while True:
         oled.fill_rect(110,y_SP-2,21,11,0)
         oled.text("Set Point:",0,y_SP)
         oled.text(str(setpoint),112,y_SP,1)
+    if i%20==0:
+        c.check_msg()
     if i==40:
         print("dht")
         i=0
@@ -110,8 +137,9 @@ while True:
         # oled.show()
         j=j+1
     i=i+1
-    if j==2:
+    if j==2 or nuevo_sp==1:
         j=0
+        nuevo_sp=0
         if ventilador==1 and temperatura < setpoint-histeresis:
             ventilador=0
             oled.fill_rect(0,y_vent,128,8,0)
@@ -126,9 +154,16 @@ while True:
     if ticks_diff(ticks_ms(), start2)>180000:
         start2 = ticks_ms()
         if wlan.isconnected():
-            mqtt(temperatura,humedad,setpoint,ventilador,mac)
+            mqtt(temperatura,humedad,setpoint,ventilador,c)
             enviando=8
+            oled.fill_rect(0,y_wifi-2,128,12,0)
+            oled.text("WiFi: "+ wlan.config('essid'),0,y_wifi)
             inicio=ticks_ms()+500
+        else:
+            oled.fill_rect(0,y_wifi-2,128,12,1)
+            oled.text("WiFi:         NO",0,y_wifi,0)
+            do_connect()
+
     if enviando>0:
         if (enviando % 2)==0 and ticks_diff(ticks_ms(), inicio)>249:
             oled.hline(0,63,128,1)

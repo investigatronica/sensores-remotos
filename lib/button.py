@@ -24,7 +24,7 @@ class Button:
         pin.irq(trigger=trigger, handler=self.debounce_handler)
 
     def call_callback(self, pin):
-        self.callback(pin)
+        self.callback(pin,None) #para reutilisar la función
 
     def debounce_handler(self, pin):
         if ticks_ms() > self._next_call:
