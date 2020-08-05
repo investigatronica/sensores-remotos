@@ -2,7 +2,7 @@ from machine import Pin, I2C
 import ssd1306, dht, ujson, os, network,errno
 from time import sleep_ms,ticks_ms, ticks_diff,sleep
 from rotary_irq_esp import RotaryIRQ
-from umqtt.simple import MQTTClient
+from umqtt.robust import MQTTClient
 from button import Button
 from boot import do_connect
 
@@ -14,8 +14,10 @@ oled = ssd1306.SSD1306_I2C(oled_width, oled_height, i2c)
 oled.fill(0)
 oled.show()
 
-def mqtt(temperatura,humedad,setpoint,ventilador,c):
+def mqtt(temperatura,humedad,setpoint,ventilador):
+    global c
     try:
+        c.disconnect()
         c.connect()
     except OSError as e:
         print("no hsot")
@@ -25,7 +27,10 @@ def mqtt(temperatura,humedad,setpoint,ventilador,c):
         c.publish(topico, envio)
         print("publicado")
         print(envio)
-    # c.disconnect()
+    try:
+        c.subscribe(b"/"+mac+b"/setpoint")
+    except:
+        print("no se puede suscribir")
 
 def button_a_callback(topic, msg):
     global r
@@ -99,7 +104,7 @@ try:
 except OSError as e:
     print("no hsot")
 
-c.subscribe(b"sensores_remotos/"+mac+b"/setpoint")
+c.subscribe(b"/"+mac+b"/setpoint")
 
 i=0
 j=0
@@ -126,17 +131,39 @@ while True:
         try:
             c.check_msg()
         except:
-            try:
-                c.connect()
-            except OSError as e:
-                print("no hsot")
-
+            print("no recibe")
     if i==40:
         print("dht")
         i=0
-        d.measure()
-        temperatura=d.temperature()
-        humedad=d.humidity()
+        try:
+            d.measure()
+            try:
+                temperatura=d.temperature()
+                try:
+                    humedad=d.humidity()
+                except OSError as e:
+                    print("sin sensor")
+                    oled.fill_rect(0,y_wifi-2,128,12,1)
+                    oled.text("  SIN SENSOR ",0,y_wifi,0)
+                else:
+                    oled.fill_rect(0,y_wifi-2,128,12,0)
+                    oled.text("WiFi: "+ wlan.config('essid'),0,y_wifi)
+            except OSError as e:
+                print("sin sensor")
+                oled.fill_rect(0,y_wifi-2,128,12,1)
+                oled.text("  SIN SENSOR ",0,y_wifi,0)
+            else:
+                oled.fill_rect(0,y_wifi-2,128,12,0)
+                oled.text("WiFi: "+ wlan.config('essid'),0,y_wifi)
+        except OSError as e:
+            print("sin sensor")
+            oled.fill_rect(0,y_wifi-2,128,12,1)
+            oled.text("   SIN SENSOR ",0,y_wifi,0)
+        else:
+            oled.fill_rect(0,y_wifi-2,128,12,0)
+            oled.text("WiFi: "+ wlan.config('essid'),0,y_wifi)
+
+
         oled.fill_rect(0,0,128,18,0)
         oled.text("Temp.:     " + str(temperatura)+ "C",0,0)
         oled.text("Humedad:   " + str(humedad)+"%",0,10)
@@ -160,7 +187,7 @@ while True:
         start2 = ticks_ms()
         nuevo_sp=0
         if wlan.isconnected():
-            mqtt(temperatura,humedad,setpoint,ventilador,c)
+            mqtt(temperatura,humedad,setpoint,ventilador)
             enviando=8
             oled.fill_rect(0,y_wifi-2,128,12,0)
             oled.text("WiFi: "+ wlan.config('essid'),0,y_wifi)
