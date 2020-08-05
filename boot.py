@@ -6,7 +6,7 @@ def do_connect(veces):
     wlan.active(True)
     if not wlan.isconnected():
         print('connecting to network...')
-        wlan.connect('ssid', 'pass')
+        wlan.connect('essid', 'password')
         while not wlan.isconnected() and veces >0:
             sleep(5)
             veces-=1

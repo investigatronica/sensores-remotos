@@ -7,27 +7,25 @@ from button import Button
 from boot import do_connect
 
 wlan = network.WLAN(network.STA_IF)
-
-def mqtt(temperatura,humedad,setpoint,ventilador,c):
-    # try:
-    #     c.connect()
-    # except OSError as e:
-    #     print("no hsot")
-    # else:
-    envio=ujson.dumps({'temperatura':temperatura,'humedad':humedad,'setpoint':setpoint,'rele':ventilador})
-    topico=b"sensores_remotos/"+mac
-    c.publish(topico, envio)
-    print("publicado")
-    print(envio)
-    # c.disconnect()
-
-
 i2c = I2C(-1, scl=Pin(5), sda=Pin(4))
 oled_width = 128
 oled_height = 64
 oled = ssd1306.SSD1306_I2C(oled_width, oled_height, i2c)
 oled.fill(0)
 oled.show()
+
+def mqtt(temperatura,humedad,setpoint,ventilador,c):
+    try:
+        c.connect()
+    except OSError as e:
+        print("no hsot")
+    else:
+        envio=ujson.dumps({'temperatura':temperatura,'humedad':humedad,'setpoint':setpoint,'rele':ventilador})
+        topico=b"sensores_remotos/"+mac
+        c.publish(topico, envio)
+        print("publicado")
+        print(envio)
+    # c.disconnect()
 
 def button_a_callback(topic, msg):
     global r
@@ -109,6 +107,7 @@ start2 = ticks_ms()
 temperatura=0
 humedad=0
 enviando=0
+
 while True:
     new_SP = r.value()
 
@@ -124,7 +123,14 @@ while True:
         oled.text("Set Point:",0,y_SP)
         oled.text(str(setpoint),112,y_SP,1)
     if i%20==0:
-        c.check_msg()
+        try:
+            c.check_msg()
+        except:
+            try:
+                c.connect()
+            except OSError as e:
+                print("no hsot")
+
     if i==40:
         print("dht")
         i=0
@@ -139,7 +145,6 @@ while True:
     i=i+1
     if j==2 or nuevo_sp==1:
         j=0
-        nuevo_sp=0
         if ventilador==1 and temperatura < setpoint-histeresis:
             ventilador=0
             oled.fill_rect(0,y_vent,128,8,0)
@@ -151,8 +156,9 @@ while True:
             oled.text("Ventilador:   SI",0,y_vent)
             rele.off()
         print(ventilador)
-    if ticks_diff(ticks_ms(), start2)>180000:
+    if ticks_diff(ticks_ms(), start2)>180000 or nuevo_sp==1:
         start2 = ticks_ms()
+        nuevo_sp=0
         if wlan.isconnected():
             mqtt(temperatura,humedad,setpoint,ventilador,c)
             enviando=8
